@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { api } from '../services/api';
 
+/**
+ * Componente de formulário inteligente para cadastro de veículos.
+ * Integrações principais:
+ * 1. Back-end Python (BFF) -> OpenAI (Geração de descrições automatizadas via IA).
+ * 2. Back-end Python -> Banco de Dados (Persistência e criação dinâmica de Marcas/Modelos).
+ */
 export function VehicleForm() {
+  // Estado centralizado para os campos do formulário.
+  // Decisão técnica: Mantidos como string inicialmente para permitir digitação livre 
+  // do usuário (com pontos e vírgulas) antes da conversão para envio.
   const [formData, setFormData] = useState({
     marca: '',
     modelo: '',
@@ -12,22 +21,35 @@ export function VehicleForm() {
     descricao: ''
   });
 
+  // Estado dedicado para controle da interface durante requisições pesadas (UX/UI).
   const [isLoadingAI, setIsLoadingAI] = useState(false);
 
+  /**
+   * Manipulador genérico que atualiza dinamicamente o estado baseado no atributo 'name' do input.
+   */
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  /**
+   * Utilitário de higienização de dados numéricos (Data Sanitization).
+   * Resolve o conflito entre o formato brasileiro (120.000,00) e o padrão Float internacional (120000.00).
+   */
   const parseNumber = (val: string) => {
     if (!val) return 0;
+    // Regex global (/\./g) remove todos os pontos; replace troca a primeira vírgula por ponto.
     const cleanString = val.replace(/\./g, '').replace(',', '.');
     return Number(cleanString);
   };
 
+  /**
+   * Dispara a requisição para a IA gerar a descrição com base no contexto do carro.
+   */
   const handleGenerateDescription = async (e: React.MouseEvent) => {
-    e.preventDefault();
+    e.preventDefault(); // Evita o recarregamento indesejado da página
     
+    // Early Return: garantia de que a IA tenha o contexto mínimo para operar.
     if (!formData.marca || !formData.modelo) {
       alert("Preencha ao menos a Marca e o Modelo para a IA gerar a descrição!");
       return;
@@ -36,6 +58,7 @@ export function VehicleForm() {
     setIsLoadingAI(true);
     
     try {
+      // Monta o payload enviando os números já convertidos e limpos
       const response = await api.post('/gerar-descricao', {
         marca: formData.marca,
         modelo: formData.modelo,
@@ -45,6 +68,7 @@ export function VehicleForm() {
         valor: parseNumber(formData.valor)
       });
 
+      // Atualiza estritamente o campo 'descricao', preservando o restante do objeto
       setFormData(prev => ({
         ...prev,
         descricao: response.data.descricao
@@ -53,19 +77,24 @@ export function VehicleForm() {
       console.error("Erro ao gerar descrição com IA:", error);
       alert("Não foi possível gerar a descrição no momento.");
     } finally {
+      // O bloco finally garante o desbloqueio do botão independente de sucesso ou falha da API.
       setIsLoadingAI(false);
     }
   };
 
+  /**
+   * Intercepta o envio do formulário, constrói o pacote final e envia para a API.
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Construção do DTO perfeitamente alinhado com o schema Pydantic do Back-end.
     const payload = {
       marca_nome: formData.marca,
       modelo_nome: formData.modelo,
       ano: parseNumber(formData.ano),
-      combustivel: "Flex", 
-      num_portas: 4,       
+      combustivel: "Flex", // Default fallback, uma vez que o requisito visual não exigiu este campo.
+      num_portas: 4,       // Default fallback.
       cor: formData.cor,
       quilometragem: parseNumber(formData.quilometragem),
       valor_anuncio: parseNumber(formData.valor),
@@ -75,6 +104,8 @@ export function VehicleForm() {
     try {
       await api.post('/carros', payload);
       alert("Veículo cadastrado com sucesso!");
+      
+      // Recarrega a página inteira para limpar os estados e forçar o GET da nova lista atualizada.
       window.location.reload(); 
     } catch (error) {
       console.error('Erro ao salvar veículo:', error);
@@ -104,6 +135,7 @@ export function VehicleForm() {
 
         <div className="space-y-1">
           <label className="block text-sm font-medium text-gray-300">Ano</label>
+          {/* inputMode="numeric" aciona o teclado numérico em dispositivos móveis, melhorando a UX */}
           <input 
             required type="text" inputMode="numeric" name="ano" placeholder="Ex: 2022"
             value={formData.ano} onChange={handleChange}
@@ -136,10 +168,12 @@ export function VehicleForm() {
           />
         </div>
 
+        {/* --- ÁREA DE INTELIGÊNCIA ARTIFICIAL --- */}
         <div className="md:col-span-2 mt-2">
           <button 
             onClick={handleGenerateDescription}
             disabled={isLoadingAI}
+            // disabled:opacity-50 dá o feedback visual imediato de bloqueio
             className="w-full py-3 bg-transparent border border-ws-yellow text-ws-yellow font-bold rounded-md hover:bg-ws-yellow hover:text-ws-darkBlue transition-all shadow-[0_0_15px_rgba(250,204,21,0.15)] disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
           >
             {isLoadingAI ? 'GERANDO...' : 'GERAR DESCRIÇÃO COM IA'}
@@ -148,6 +182,7 @@ export function VehicleForm() {
 
         <div className="space-y-1 md:col-span-2 mt-2">
           <label className="block text-sm font-medium text-gray-300">Descrição do Anúncio</label>
+          {/* resize-none impede que o usuário quebre o layout puxando a caixa de texto */}
           <textarea 
             required name="descricao" rows={4}
             value={formData.descricao} onChange={handleChange}
