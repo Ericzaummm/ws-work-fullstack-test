@@ -7,6 +7,9 @@ class MarcaBase(BaseModel):
     nome_marca: str
 
 class MarcaCreate(MarcaBase):
+    pass
+
+class MarcaResponse(MarcaBase):
     id: int
 
     class Config:
@@ -22,7 +25,7 @@ class ModeloBase(BaseModel):
 class ModeloCreate(ModeloBase):
     pass
 
-class ModelResponse(ModeloBase):
+class ModeloResponse(ModeloBase):
     id: int
 
     class Config:
