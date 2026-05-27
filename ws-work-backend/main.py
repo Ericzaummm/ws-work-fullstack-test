@@ -1,12 +1,18 @@
+import os
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
+from dotenv import load_dotenv
+from openai import OpenAI
 
 import models, schemas, crud
 from database import engine, get_db
 
-# Cria as tabelas no banco de dados SQLite
+load_dotenv()
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -15,7 +21,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configuração de CORS 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -27,8 +32,6 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     return {"mensagem": "API da WS Work Motors rodando com sucesso!"}
-
-# Endpoints da api
 
 @app.get("/marcas", response_model=List[schemas.MarcaResponse], tags=["Marcas"])
 def read_marcas(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
@@ -44,15 +47,69 @@ def read_carros(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 
 @app.post("/carros", response_model=schemas.CarroResponse, tags=["Carros"])
 def create_carro(carro: schemas.CarroCreate, db: Session = Depends(get_db)):
-    # Valida se o modelo_id fornecido realmente existe
-    modelo = db.query(models.Modelo).filter(models.Modelo.id == carro.modelo_id).first()
+    marca = db.query(models.Marca).filter(models.Marca.nome_marca.ilike(carro.marca_nome)).first()
+    if not marca:
+        marca = models.Marca(nome_marca=carro.marca_nome)
+        db.add(marca)
+        db.commit()
+        db.refresh(marca)
+
+    modelo = db.query(models.Modelo).filter(models.Modelo.nome.ilike(carro.modelo_nome)).first()
     if not modelo:
-        raise HTTPException(status_code=404, detail="Modelo não encontrado. Verifique o modelo_id.")
+        modelo = models.Modelo(nome=carro.modelo_nome, marca_id=marca.id, valor_fipe=0.0)
+        db.add(modelo)
+        db.commit()
+        db.refresh(modelo)
         
-    novo_carro = crud.create_carro(db=db, carro=carro)
+    db_carro = models.Carro(
+        modelo_id=modelo.id,
+        ano=carro.ano,
+        combustivel=carro.combustivel,
+        num_portas=carro.num_portas,
+        cor=carro.cor,
+        quilometragem=carro.quilometragem,
+        valor_anuncio=carro.valor_anuncio,
+        descricao=carro.descricao
+    )
+    db.add(db_carro)
+    db.commit()
+    db.refresh(db_carro)
     
-    # Preenche os dados relacionais para devolver no JSON de resposta imediata
-    novo_carro.nome_modelo = modelo.nome
-    novo_carro.nome_marca = modelo.marca.nome_marca if modelo.marca else None
+    db_carro.nome_modelo = modelo.nome
+    db_carro.nome_marca = marca.nome_marca
     
-    return novo_carro
+    return db_carro
+
+@app.post("/gerar-descricao", tags=["Inteligência Artificial"])
+async def gerar_descricao_ia(dados: schemas.IADescricaoRequest):
+    prompt = f"""
+    Aja como um vendedor de carros de luxo experiente e persuasivo.
+    Escreva uma descrição atraente e direta de no máximo 3 linhas para um anúncio de venda.
+    Destaque os pontos fortes.
+    
+    Dados do carro:
+    - Marca: {dados.marca}
+    - Modelo: {dados.modelo}
+    - Ano: {dados.ano}
+    - Cor: {dados.cor}
+    - Quilometragem: {dados.quilometragem} km
+    - Valor: R$ {dados.valor}
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Você é o melhor vendedor de carros do Brasil."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=150
+        )
+        descricao_gerada = response.choices[0].message.content.strip()
+        return {"descricao": descricao_gerada}
+        
+    except Exception as e:
+        print(f"Erro na OpenAI: {e}")
+        texto_fallback = f"Oportunidade imperdível! {dados.marca} {dados.modelo} {dados.ano} na belíssima cor {dados.cor}. Apenas {dados.quilometragem}km rodados. Excelente estado de conservação por apenas R$ {dados.valor}. Entre em contato agora e agende um test drive!"
+        return {"descricao": texto_fallback}

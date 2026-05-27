@@ -9,3 +9,5 @@ env/
 # Cache do Python
 __pycache__/
 *.pyc
+
+.env

@@ -43,8 +43,16 @@ class CarroBase(BaseModel):
     valor_anuncio: float
     descricao: str
 
-class CarroCreate(CarroBase):
-    pass
+class CarroCreate(BaseModel):
+    marca_nome: str
+    modelo_nome: str
+    ano: int
+    combustivel: str
+    num_portas: int
+    cor: str
+    quilometragem: int
+    valor_anuncio: float
+    descricao: str
 
 class CarroResponse(CarroBase):
     id: int 
@@ -55,3 +63,13 @@ class CarroResponse(CarroBase):
 
     class Config:
         from_attributes = True
+
+# Schema para a IA
+
+class IADescricaoRequest(BaseModel):
+    marca: str
+    modelo: str
+    ano: int
+    cor: str
+    quilometragem: int
+    valor: float
