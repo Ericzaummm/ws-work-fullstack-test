@@ -29,7 +29,10 @@ app = FastAPI(
 # faça requisições ao Back-end (FastAPI) sem ser bloqueado pelas políticas de segurança do navegador.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Quando eu colocar em produção vou restringir o domínio do Front-end (ex: https://meusite.vercel.app)
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # 1. O Banco de Dados de Produção
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: wswork_user
+      POSTGRES_PASSWORD: wswork_password
+      POSTGRES_DB: wswork_motors
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Ensina o Docker a "pingar" o banco até ele responder que está pronto
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wswork_user -d wswork_motors"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. API em Python
+  backend:
+    build: ./ws-work-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      # Diz para o Docker ler o seu arquivo .env e injetar a chave da OpenAI
+      - ./ws-work-backend/.env
+    environment:
+      - DATABASE_URL=postgresql://wswork_user:wswork_password@db:5432/wswork_motors
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 3. Front-end em React/Vite
+  frontend:
+    build: ./ws-work-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
