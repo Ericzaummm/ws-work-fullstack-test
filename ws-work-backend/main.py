@@ -9,79 +9,77 @@ from openai import OpenAI
 import models, schemas, crud
 from database import engine, get_db
 
+# Carrega as variáveis de ambiente (ex: OPENAI_API_KEY) do ficheiro .env
 load_dotenv()
 
+# Inicializa o cliente da OpenAI de forma segura, sem expor chaves no código-fonte
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# Criação das tabelas na base de dados caso ainda não existam
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="WS Work Motors API",
-    description="API para listagem e cadastro de veículos com integração de Inteligência Artificial",
+    description="API RESTful para gestão de catálogo de veículos com integração de Inteligência Artificial.",
     version="1.0.0"
 )
 
+# Configuração do CORS (Cross-Origin Resource Sharing)
+# Fundamental numa arquitetura Monorepo/Desacoplada para permitir que o Front-end (React)
+# faça requisições ao Back-end (FastAPI) sem ser bloqueado pelas políticas de segurança do navegador.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"], # Quando eu colocar em produção vou restringir o domínio do Front-end (ex: https://meusite.vercel.app)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/")
+@app.get("/", tags=["Health Check"])
 def read_root():
-    return {"mensagem": "API da WS Work Motors rodando com sucesso!"}
+    """Endpoint de verificação de estado (Health Check) da API."""
+    return {"mensagem": "API da WS Work Motors a correr com sucesso!"}
 
 @app.get("/marcas", response_model=List[schemas.MarcaResponse], tags=["Marcas"])
 def read_marcas(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """Retorna a lista de todas as marcas registadas."""
     return crud.get_marcas(db, skip=skip, limit=limit)
 
 @app.get("/modelos", response_model=List[schemas.ModeloResponse], tags=["Modelos"])
 def read_modelos(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """Retorna a lista de todos os modelos registados."""
     return crud.get_modelos(db, skip=skip, limit=limit)
 
 @app.get("/carros", response_model=List[schemas.CarroResponse], tags=["Carros"])
 def read_carros(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Retorna o catálogo completo de carros.
+    Delega ao crud.py a responsabilidade de realizar o 'Data Flattening' (BFF), devolvendo 
+    os dados relacionais já resolvidos para o Front-end consumir diretamente.
+    """
     return crud.get_carros(db, skip=skip, limit=limit)
 
 @app.post("/carros", response_model=schemas.CarroResponse, tags=["Carros"])
 def create_carro(carro: schemas.CarroCreate, db: Session = Depends(get_db)):
-    marca = db.query(models.Marca).filter(models.Marca.nome_marca.ilike(carro.marca_nome)).first()
-    if not marca:
-        marca = models.Marca(nome_marca=carro.marca_nome)
-        db.add(marca)
-        db.commit()
-        db.refresh(marca)
-
-    modelo = db.query(models.Modelo).filter(models.Modelo.nome.ilike(carro.modelo_nome)).first()
-    if not modelo:
-        modelo = models.Modelo(nome=carro.modelo_nome, marca_id=marca.id, valor_fipe=0.0)
-        db.add(modelo)
-        db.commit()
-        db.refresh(modelo)
-        
-    db_carro = models.Carro(
-        modelo_id=modelo.id,
-        ano=carro.ano,
-        combustivel=carro.combustivel,
-        num_portas=carro.num_portas,
-        cor=carro.cor,
-        quilometragem=carro.quilometragem,
-        valor_anuncio=carro.valor_anuncio,
-        descricao=carro.descricao
-    )
-    db.add(db_carro)
-    db.commit()
-    db.refresh(db_carro)
-    
-    db_carro.nome_modelo = modelo.nome
-    db_carro.nome_marca = marca.nome_marca
-    
-    return db_carro
+    """
+    Regista um novo veículo.
+    A lógica de negócio complexa (criação dinâmica de Marcas e Modelos inexistentes) 
+    foi isolada na camada CRUD, mantendo este controlador limpo e focado 
+    apenas em orquestrar o tráfego HTTP.
+    """
+    # Delega a tarefa para a função criada no crud.py
+    return crud.create_carro(db=db, carro=carro)
 
 @app.post("/gerar-descricao", tags=["Inteligência Artificial"])
 async def gerar_descricao_ia(dados: schemas.IADescricaoRequest):
+    """
+    Integração com a API da OpenAI (ChatGPT).
+    Recebe os dados parciais do veículo do formulário React e utiliza engenharia de prompts 
+    para gerar uma descrição de vendas persuasiva.
+    
+    Resiliência: Possui um mecanismo de 'Fallback' elegante para garantir que a interface 
+    do utilizador não quebre caso a API da OpenAI falhe, gere timeout ou falte saldo.
+    """
     prompt = f"""
     Aja como um vendedor de carros de luxo experiente e persuasivo.
     Escreva uma descrição atraente e direta de no máximo 3 linhas para um anúncio de venda.
@@ -111,5 +109,6 @@ async def gerar_descricao_ia(dados: schemas.IADescricaoRequest):
         
     except Exception as e:
         print(f"Erro na OpenAI: {e}")
-        texto_fallback = f"Oportunidade imperdível! {dados.marca} {dados.modelo} {dados.ano} na belíssima cor {dados.cor}. Apenas {dados.quilometragem}km rodados. Excelente estado de conservação por apenas R$ {dados.valor}. Entre em contato agora e agende um test drive!"
+        # Fallback de segurança gerado localmente pelo Python
+        texto_fallback = f"Oportunidade imperdível! {dados.marca} {dados.modelo} {dados.ano} na belíssima cor {dados.cor}. Apenas {dados.quilometragem}km rodados. Excelente estado de conservação por apenas R$ {dados.valor}. Entre em contacto agora e agende um test drive!"
         return {"descricao": texto_fallback}
