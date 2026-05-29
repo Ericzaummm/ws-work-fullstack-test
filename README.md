@@ -1,4 +1,4 @@
-# 🚗 WS Work Motors - Full Stack Challenge
+# 🚗 WS Work Motors - Desafio Full Stack
 
 Bem-vindo ao repositório do **WS Work Motors**, uma aplicação Full Stack moderna desenvolvida como resolução do desafio técnico para a WS Work.
 
